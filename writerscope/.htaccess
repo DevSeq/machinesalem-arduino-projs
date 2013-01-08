@@ -1,0 +1,13 @@
+Options +Indexes +MultiViews +FollowSymlinks
+
+AddType text/x-arduino ino
+
+<Files .htaccess>
+ order allow,deny
+ deny from all
+</Files>
+
+<IfModule mod_autoindex.c>
+  IndexOptions FancyIndexing
+  ReadmeName readme
+</IfModule>

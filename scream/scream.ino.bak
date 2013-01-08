@@ -1,0 +1,110 @@
+/*
+
+  scream
+  part from http://interface.khm.de/index.php/lab/experiments/arduino-dds-sinewave-generator/
+
+  It would be better to use a 16k PWM clock directly -- less resolution, but more processing time
+  see http://www.arduino.cc/cgi-bin/yabb2/YaBB.pl?num=1289879390/4
+  http://winavr.scienceprog.com/avr-gcc-tutorial/control-avr-8-bit-timer-counter2-using-winavr.html
+  http://arduino.cc/en/Tutorial/SecretsOfArduinoPWM
+*/
+
+#include <avr/pgmspace.h>
+
+/* Table of wave data */
+#include "scream.h"
+#define WAVEDATA     scream
+#define WAVEDATA_LEN scream_len
+
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+
+// may vary, mega is 10
+#define TIMER2COMPAREPIN 11
+
+// variables used inside interrupt service declared as voilatile
+volatile int icnt;               // var inside interrupt
+volatile byte icnt1;             // var inside interrupt
+volatile byte c4ms;              // counter incremented each 4ms, reset each second
+
+
+void setup()
+{
+  pinMode(13, OUTPUT);      // sets the digital pin as output
+  Serial.begin(115200);        // connect to the serial port
+
+  pinMode(6, OUTPUT);      // sets the digital pin as output
+  pinMode(7, OUTPUT);      // sets the digital pin as output
+  pinMode(TIMER2COMPAREPIN, OUTPUT);     // pin11= PWM  output / frequency output
+
+  Setup_timer2();
+
+  // disable interrupts to avoid timing distortion
+  cbi (TIMSK0,TOIE0);              // disable Timer0 !!! delay() is now not available
+  sbi (TIMSK2,TOIE2);              // enable Timer2 Interrupt
+}
+
+
+void loop()
+{
+  while(1) {
+     if (c4ms > 250) {                 // timer / wait fou a full second
+      c4ms=0;
+      
+      // do stuff
+    }
+
+   sbi(PORTD,6); // Test / set PORTD,7 high to observe timing with a scope
+   cbi(PORTD,6); // Test /reset PORTD,7 high to observe timing with a scope
+  }
+ }
+
+ 
+//******************************************************************
+// timer2 setup
+// set prscaler to 1, PWM mode to phase correct PWM,  16000000/510 = 31372.55 Hz clock
+void Setup_timer2() {
+
+  // Timer2 Clock Prescaler: 1
+  sbi (TCCR2B, CS20);
+  cbi (TCCR2B, CS21);
+  cbi (TCCR2B, CS22);
+
+  // Timer2 Compare output mode: non-inverting
+  cbi (TCCR2A, COM2A0);
+  sbi (TCCR2A, COM2A1);
+
+  // Timer2 PWM Mode: 8-bit Phase-Correct
+  sbi (TCCR2A, WGM20);
+  cbi (TCCR2A, WGM21);
+  cbi (TCCR2B, WGM22);
+}
+
+//******************************************************************
+// Timer2 Interrupt Service at 31372,550 KHz = 32uSec
+ISR(TIMER2_OVF_vect) {
+
+  sbi(PORTD,7);          // Test / set PORTD,7 high to observe timing with a oscope
+
+  // Set PWM-comparator value to the wavedata.
+  
+  // Our WAV sample is 16kHz, but clock is 32kHz.
+  // Linear interpolate between adjacent samples.
+  uint16_t p;
+  p = pgm_read_byte_near(WAVEDATA + (icnt>>1));
+  icnt++;
+  p += pgm_read_byte_near(WAVEDATA + (icnt>>1));
+  OCR2A = (byte)(p>>1);
+  
+  if(icnt == WAVEDATA_LEN+WAVEDATA_LEN) {
+    icnt=0;
+   }   
+
+  if(icnt1++ == 125) {  // increment variable c4ms all 4 milliseconds
+    c4ms++;
+    icnt1=0;
+   }   
+
+ cbi(PORTD,7);            // reset PORTD,7
+}
+

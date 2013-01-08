@@ -1,0 +1,196 @@
+/* ============== paste here from include_me.txt ======================= */
+// text: machine
+// scale: 6.28239359195854E-02
+// data
+const int R = 0; /* reset */
+const int M = 1; /* moveto */
+const int L = 2; /* lineto */
+const int Q = 3; /* quadratic_curve_to */
+const int B = 4; /* bezier curve to */
+const int data[] = {M,269,3,L,261,3,L,261,8,L,267,14,L,279,14,L,288,5,L,288,-31,L,269,-31,L,269,3,M,240,3,L,232,3,L,232,8,L,238,14,L,252,14,L,258,8,L,258,-31,L,240,-31,L,240,3,M,210,14,L,229,14,L,229,-31,L,210,-31,L,210,14,
+M,326,3,L,299,3,L,299,9,L,305,14,L,333,14,L,345,3,L,345,-31,L,326,-31,L,326,3,M,296,-12,L,303,-4,L,323,-4,L,323,-13,L,314,-13,L,314,-20,L,323,-20,L,323,-25,L,318,-31,L,303,-31,L,296,-24,L,296,-12,
+M,375,14,L,391,14,L,402,3,L,402,-4,L,383,-4,L,383,3,L,375,3,L,375,14,M,353,3,L,364,14,L,372,14,L,372,-31,L,364,-31,L,353,-20,L,353,3,M,375,-20,L,383,-20,L,383,-15,L,402,-15,L,402,-20,L,391,-31,L,375,-31,L,375,-20,
+M,410,31,L,428,31,L,428,-31,L,410,-31,L,410,31,M,440,3,L,431,3,L,431,9,L,437,14,L,447,14,L,459,3,L,459,-31,L,440,-31,L,440,3,
+M,467,32,L,486,32,L,486,20,L,467,20,L,467,32,M,467,14,L,486,14,L,486,-31,L,467,-31,L,467,14,
+M,525,3,L,517,3,L,517,8,L,523,14,L,534,14,L,544,4,L,544,-31,L,525,-31,L,525,3,M,495,14,L,514,14,L,514,-31,L,495,-31,L,495,14,
+M,574,-5,L,583,-5,L,583,3,L,574,3,L,574,14,L,590,14,L,601,3,L,601,-13,L,574,-13,L,574,-5,M,552,3,L,564,14,L,571,14,L,571,-31,L,564,-31,L,552,-20,L,552,3,M,574,-20,L,599,-20,L,599,-25,L,594,-31,L,574,-31,L,574,-20};
+/* ====================================================================== */
+
+/*  2012-05-29 @machinesalem,  (cc) https://creativecommons.org/licenses/by/3.0/
+
+  "writerscope"
+  
+  Vector-text-writer-oscilloscope
+  Uses arduino digital out, with an integrator connected to channels X and Y of an oscilloscope,
+  to write lettering derived from TrueType font outline vectors.
+  
+  The integrator is an opamp (one channel for each X and Y), in this prototype TLE2071 (pick one that will work with a 5v rail).
+  
+                 +---||---+
+                 |   1u5  |
+  pin9 ---[10k]--+-|\     |
+                   | >----+---- to scope
+            vRef---|/
+           
+  where vRef is half vCC, derived with a couple resistors.
+  Set pin9 high for a short period, and you get a straight line on the scope.
+  Same thing for the "Y" scope channel, using pin10.
+  
+  The "Z" channel controls whether the beam is on or off.
+  
+  The vector text (in the "data[]" array above) is derived from a TrueType font using the code in black_ops_one_regular.writerscope.js,
+  which is generated using typeface.js (http://typeface.neocracy.org/) and then reformatted into the Arduino syntax.
+  From a command prompt,
+    cscript -nologo black_ops_one_regular.writerscope.js  > include_me.txt
+  and then pasted in here.
+  Eventually I'd like to have arduino listen for data in this format on the serial port and just draw it, and have a server with
+  node.js to run the text-to-outline typeface.js thing and talk to the arduino over serial...
+    
+*/
+
+
+// A few test shapes
+//const unsigned int data[] = { M,100,50, L,150,100, L,100,150, L,50,100, L,100,50, L,50,50, M,0,0, L,400,0, L,400,400, L,0,400, L,0,0 };
+//const unsigned int data[] = { M,100,50, L,150,100, L,100,150, L,50,100, L,100,50, L,50,50 };
+//const unsigned int data[] = { M,1,1, L,500,1, L,500,500, L,1,500 };
+
+unsigned long tick = micros();
+
+// code
+const int maxx = 700;
+const int maxy = 600;
+
+const byte px = 9;
+const byte py = 10;
+const byte pz = 11;
+
+int x = 0;
+int y = 0;
+int instr = 0;
+int tgt_x = 0;
+int tgt_y = 0;
+unsigned int point = 0;
+unsigned int length = sizeof(data)/sizeof(int);
+const boolean debug = false;
+
+unsigned long dx = 0;
+unsigned long dy = 0;
+unsigned long dd = 0;
+unsigned long d = 0;
+unsigned int sx = 30;
+unsigned int sy = 30;
+boolean beam_on = false;
+
+void setup()
+{
+  Serial.begin(19200);
+  pinMode( px, INPUT ); digitalWrite( px, LOW );
+  pinMode( py, INPUT ); digitalWrite( py, LOW );
+  
+  // Start with beam 'off'
+  pinMode( pz, OUTPUT ); digitalWrite( pz, LOW );
+}
+
+
+void loop()
+{
+  if(instr==R || instr==M)
+  {
+    beam_on = LOW;
+  }
+  else
+  {
+    beam_on = HIGH;
+  }
+
+  dx = dx * sx;
+  dy = dy * sy;    
+  d = (dx>dy) ? dx : dy;
+  
+  dd = micros()-tick;
+
+  // Set the beam on or off
+  digitalWrite( pz, beam_on );
+  
+  // Line to the target (horizontally or vertically or diagonally - no smart lines or curves yet!)
+
+  if( tgt_x<x )      { pinMode( px, OUTPUT ); digitalWrite( px, LOW ); }
+  else if( tgt_x>x ) { pinMode( px, OUTPUT ); digitalWrite( px, HIGH ); }
+  else               { pinMode( px, INPUT );  digitalWrite( px, LOW ); }
+  
+  if( tgt_y<y )      { pinMode( py, OUTPUT ); digitalWrite( py, LOW ); }
+  else if( tgt_y>y ) { pinMode( py, OUTPUT ); digitalWrite( py, HIGH ); }
+  else               { pinMode( py, INPUT );  digitalWrite( py, LOW ); }
+
+  // Wait long enough
+  while(dd<d)
+  {
+    if(dd>=dx) { pinMode( px, INPUT ); digitalWrite( px, LOW ); };
+    if(dd>=dy) { pinMode( py, INPUT ); digitalWrite( py, LOW ); };
+    dd = micros()-tick;
+  };
+  tick=micros();
+
+  // Turn the pins (and pullups) off
+  pinMode( px, INPUT ); digitalWrite( px, LOW );
+  pinMode( py, INPUT ); digitalWrite( py, LOW );
+  
+  // we arrived
+  x = tgt_x;
+  y = tgt_y;
+
+  // Leave the beam on, why not
+  
+  // next instruction
+  point+=3;
+  if( point>=length )
+  {
+    point = 0;
+    instr = R;
+    tgt_x = -100;
+    tgt_y = -100;
+  }
+  else
+  {
+    // read the next point
+    instr = data[point];
+    tgt_x = maxx-data[point+1];
+    tgt_y = maxy-data[point+2];
+  }
+
+  // read the next point
+  instr = data[point];
+  tgt_x = maxx-data[point+1];
+  tgt_y = maxy-data[point+2];
+    
+  // calculate timers
+  if( tgt_x<x )      { dx = x-tgt_x; }
+  else if( tgt_x>x ) { dx = tgt_x-x; }
+  else               { dx = 0;       }
+  
+  if( tgt_y<y )      { dy = y-tgt_y; }
+  else if( tgt_y>y ) { dy = tgt_y-y; }
+  else               { dy = 0;       }
+
+  if(debug)
+  {
+    Serial.print("Point ");
+    Serial.print(point);
+    Serial.print(" of ");
+    Serial.print(length);
+    Serial.print(" (");
+    Serial.write(1.0*instr);
+    Serial.write(",");
+    Serial.print(1.0*tgt_x);
+    Serial.print(",");
+    Serial.print(1.0*tgt_y);
+    Serial.print(" for (");
+    Serial.print(1.0*dx);
+    Serial.print(",");
+    Serial.print(1.0*dy);
+    Serial.println(")\n" );
+  }  
+
+}
+
+
